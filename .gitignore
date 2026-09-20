@@ -46,6 +46,11 @@ zuliprc
 botserverrc
 .botserverrc
 
+# Local environment configuration
+.env
+.env.*
+!.env.example
+
 # Bot runtime files
 *.log
 *.pid

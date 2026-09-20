@@ -80,6 +80,32 @@ def test_set_model_changes_model_for_that_user() -> None:
     assert post.call_args.kwargs["json"]["model"] == "qwen2.5-coder:0.5b"
 
 
+def test_set_provider_aarmo_uses_env_configuration(monkeypatch) -> None:
+    monkeypatch.setattr(MajaHandler, "AARMO_OLLAMA_URL", "https://example.test/api/generate")
+    monkeypatch.setattr(MajaHandler, "AARMO_TAGS_URL", "https://example.test/api/tags")
+    monkeypatch.setattr(MajaHandler, "AARMO_MODEL", "Qwen3.6:27B")
+    monkeypatch.setattr(MajaHandler, "AARMO_API_KEY", "secret")
+
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"response": "Hello from aarmo"}
+    bot = MajaHandler()
+    handler = FakeBotHandler()
+    message = {"sender_email": "x@example.com", "content": "set-provider aarmo"}
+
+    bot.handle_message(message, handler)
+    assert handler.replies == [
+        "I will use the `aarmo` provider with model `Qwen3.6:27B` for your messages."
+    ]
+
+    with patch("majabot.maja.requests.post", return_value=response) as post:
+        bot.handle_message({**message, "content": "hello"}, handler)
+
+    assert post.call_args.args[0] == "https://example.test/api/generate"
+    assert post.call_args.kwargs["json"]["model"] == "Qwen3.6:27B"
+    assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer secret"}
+
+
 def test_typing_status_wraps_chat_response() -> None:
     mock_response = Mock()
     mock_response.raise_for_status.return_value = None

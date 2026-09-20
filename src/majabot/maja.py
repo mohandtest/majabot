@@ -1,13 +1,23 @@
 import logging
+import os
 import re
 import threading
 from collections import deque
 from typing import Any, Deque, Dict, Final, List, Optional, Tuple
 
 import requests
+from dotenv import load_dotenv
 
 from .spin_wheel import SpinWheelHandler
 from zulip_bots.lib import AbstractBotHandler
+
+load_dotenv()
+
+
+def tags_url_for(generate_url: str) -> str:
+    if not generate_url:
+        return ""
+    return generate_url.rsplit("/", 1)[0] + "/tags"
 
 
 class MajaHandler:
@@ -15,9 +25,15 @@ class MajaHandler:
     Maja chat bot backed by a local Ollama model.
     """
 
-    OLLAMA_URL: Final = "http://localhost:11434/api/generate"
-    TAGS_URL: Final = "http://localhost:11434/api/tags"
-    DEFAULT_MODEL: Final = "qwen2.5-coder:0.5b"
+    LOCAL_OLLAMA_URL: Final = "http://localhost:11434/api/generate"
+    LOCAL_TAGS_URL: Final = "http://localhost:11434/api/tags"
+    LOCAL_MODEL: Final = os.getenv("LOCAL_MODEL", "qwen2.5-coder:0.5b")
+    AARMO_OLLAMA_URL: Final = os.getenv("OLLAMA_URL", "").strip()
+    AARMO_TAGS_URL: Final = os.getenv(
+        "OLLAMA_TAGS_URL", tags_url_for(AARMO_OLLAMA_URL)
+    ).strip()
+    AARMO_MODEL: Final = os.getenv("MODEL", "").strip() or LOCAL_MODEL
+    AARMO_API_KEY: Final = os.getenv("OLLAMA_API_KEY", "").strip()
     MAX_HISTORY_MESSAGES: Final = 12
     TYPING_REFRESH_SECONDS: Final = 8
     SYSTEM_PROMPT: Final = (
@@ -36,6 +52,7 @@ class MajaHandler:
         self.spin_wheel_bot = SpinWheelHandler()
         self.conversations: Dict[str, Deque[Tuple[str, str]]] = {}
         self.model_preferences: Dict[str, str] = {}
+        self.provider_preferences: Dict[str, str] = {}
 
     def usage(self) -> str:
         return """
@@ -49,6 +66,7 @@ Commands:
 • `reset` - Forget the current conversation
 • `models` - List installed Ollama models
 • `set <model-name>` - Use an installed model for your messages
+• `set-provider local|aarmo` - Choose the Ollama provider
 
 Examples:
 • `@majabot spin Alice, Bob, Charlie`
@@ -78,8 +96,12 @@ Examples:
             self.handle_spin(message, bot_handler, args)
             return
 
+        if command == "set-provider":
+            bot_handler.send_reply(message, self.set_provider(message, args))
+            return
+
         if command == "models":
-            bot_handler.send_reply(message, self.models_reply())
+            bot_handler.send_reply(message, self.models_reply(message))
             return
 
         if command == "set":
@@ -95,11 +117,15 @@ Examples:
         self.set_typing_status(message, bot_handler, "start")
         typing_thread.start()
         try:
+            provider = self.selected_provider(message)
+            ollama_url, _, api_key = self.provider_config(provider)
             response = self.generate(
                 prompt,
                 conversation_key,
                 self.sender_label(message),
                 self.selected_model(message),
+                ollama_url,
+                api_key,
             )
             bot_handler.send_reply(message, response)
         finally:
@@ -144,12 +170,37 @@ Examples:
             or "default"
         )
 
-    def selected_model(self, message: Dict[str, Any]) -> str:
-        return self.model_preferences.get(self.model_preference_key(message), self.DEFAULT_MODEL)
+    def selected_provider(self, message: Dict[str, Any]) -> str:
+        return self.provider_preferences.get(self.model_preference_key(message), "local")
 
-    def available_models(self) -> Optional[List[str]]:
+    def provider_config(self, provider: str) -> Tuple[str, str, str]:
+        if provider == "aarmo":
+            return self.AARMO_OLLAMA_URL, self.AARMO_TAGS_URL, self.AARMO_API_KEY
+        return self.LOCAL_OLLAMA_URL, self.LOCAL_TAGS_URL, ""
+
+    def selected_model(self, message: Dict[str, Any]) -> str:
+        preference = self.model_preferences.get(self.model_preference_key(message))
+        if preference:
+            return preference
+        return self.AARMO_MODEL if self.selected_provider(message) == "aarmo" else self.LOCAL_MODEL
+
+    def request_headers(self, api_key: str) -> Dict[str, str]:
+        if not api_key:
+            return {}
+        return {"Authorization": f"Bearer {api_key}"}
+
+    def available_models(self, message: Dict[str, Any]) -> Optional[List[str]]:
+        provider = self.selected_provider(message)
+        _, tags_url, api_key = self.provider_config(provider)
+        if not tags_url:
+            return None
+
         try:
-            response = requests.get(self.TAGS_URL, timeout=10)
+            response = requests.get(
+                tags_url,
+                headers=self.request_headers(api_key),
+                timeout=10,
+            )
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException:
@@ -171,8 +222,11 @@ Examples:
         }
         return sorted(names)
 
-    def models_reply(self) -> str:
-        models = self.available_models()
+    def models_reply(self, message: Dict[str, Any]) -> str:
+        provider = self.selected_provider(message)
+        models = self.available_models(message)
+        if provider == "aarmo" and not self.AARMO_OLLAMA_URL:
+            return "The aarmo provider is not configured. Set `OLLAMA_URL` in `.env` first."
         if models is None:
             return "I could not get the installed models from Ollama. Is Ollama running?"
         if not models:
@@ -185,7 +239,9 @@ Examples:
         if not model_name:
             return "Usage: `set <model-name>`. Use `models` to list installed models."
 
-        models = self.available_models()
+        models = self.available_models(message)
+        if self.selected_provider(message) == "aarmo" and not self.AARMO_OLLAMA_URL:
+            return "The aarmo provider is not configured. Set `OLLAMA_URL` in `.env` first."
         if models is None:
             return "I could not get the installed models from Ollama. Is Ollama running?"
         if model_name not in models:
@@ -193,6 +249,21 @@ Examples:
 
         self.model_preferences[self.model_preference_key(message)] = model_name
         return f"I will use `{model_name}` for your messages."
+
+    def set_provider(self, message: Dict[str, Any], provider: str) -> str:
+        provider = provider.lower()
+        if provider not in {"local", "aarmo"}:
+            return "Usage: `set-provider local` or `set-provider aarmo`."
+        if provider == "aarmo" and not self.AARMO_OLLAMA_URL:
+            return "The aarmo provider is not configured. Set `OLLAMA_URL` in `.env` first."
+
+        preference_key = self.model_preference_key(message)
+        previous_provider = self.provider_preferences.get(preference_key, "local")
+        self.provider_preferences[preference_key] = provider
+        if previous_provider != provider:
+            self.model_preferences.pop(preference_key, None)
+        model = self.selected_model(message)
+        return f"I will use the `{provider}` provider with model `{model}` for your messages."
 
     def typing_request(
         self,
@@ -288,12 +359,19 @@ Examples:
         conversation_key: str,
         speaker: str,
         model: str,
+        ollama_url: str,
+        api_key: str,
     ) -> str:
         request_prompt = self.build_prompt(prompt, conversation_key, speaker)
         payload = {"model": model, "prompt": request_prompt, "stream": False}
 
         try:
-            response = requests.post(self.OLLAMA_URL, json=payload, timeout=30)
+            response = requests.post(
+                ollama_url,
+                json=payload,
+                headers=self.request_headers(api_key),
+                timeout=30,
+            )
             response.raise_for_status()
             data = response.json()
         except requests.exceptions.RequestException:

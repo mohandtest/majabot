@@ -79,6 +79,8 @@ Mention the bot in Zulip to interact with it.
 | `@majabot reset` | Forget the current conversation history |
 | `@majabot models` | List installed Ollama models |
 | `@majabot set gemma3:1b` | Choose a model for your messages |
+| `@majabot set-provider local` | Use the local Ollama server |
+| `@majabot set-provider aarmo` | Use the `.env`-configured hosted server |
 | `@majabot spin Alice, Bob, Charlie` | Select a random winner |
 | `@majabot explain recursion` | Ask the AI a question |
 
@@ -89,7 +91,17 @@ Maja uses the local Ollama API at
 configured default model. Use `models` to list models installed in Ollama and
 `set <model-name>` to choose a model for your own messages. The selection is
 held in memory and resets when Maja restarts. API settings are in
-[src/majabot/maja.py](src/majabot/maja.py).
+[`.env`](.env), which is ignored by Git. Start from
+[.env.example](.env.example):
+
+```bash
+cp .env.example .env
+```
+
+The local provider uses `http://localhost:11434`. Set `OLLAMA_URL` and
+`MODEL` for the `aarmo` provider and, if required, set `OLLAMA_API_KEY` too.
+`OLLAMA_TAGS_URL` can override the model-list endpoint. Provider and model
+choices are held per user in memory and reset when Maja restarts.
 
 ## Tests
 

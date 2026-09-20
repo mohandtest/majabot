@@ -8,6 +8,8 @@ PID_FILE="${MAJABOT_PID_FILE:-$SCRIPT_DIR/majabot.pid}"
 LOG_FILE="${MAJABOT_LOG_FILE:-$SCRIPT_DIR/majabot.log}"
 export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
+cd "$SCRIPT_DIR"
+
 if [[ ! -x "$VENV_DIR/bin/zulip-run-bot" ]]; then
     echo "Could not find zulip-run-bot at $VENV_DIR/bin/zulip-run-bot" >&2
     echo "Create the virtual environment and install requirements.txt first." >&2
