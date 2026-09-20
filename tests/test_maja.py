@@ -61,7 +61,70 @@ def test_chat_message_strips_leading_mention() -> None:
     with patch("majabot.maja.requests.post", return_value=mock_response) as post:
         assert reply_for("@majabot explain recursion") == "Prompt stripped"
 
-    assert post.call_args.kwargs["json"]["prompt"] == "explain recursion"
+    request_prompt = post.call_args.kwargs["json"]["prompt"]
+    assert "explain recursion" in request_prompt
+    assert "@majabot" not in request_prompt
+
+
+def test_chat_message_strips_zulip_mention_with_user_id() -> None:
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {"response": "It is 3."}
+
+    with patch("majabot.maja.requests.post", return_value=mock_response) as post:
+        assert reply_for("@**Maja|1017137** what is 2+1?") == "It is 3."
+
+    assert "what is 2+1?" in post.call_args.kwargs["json"]["prompt"]
+
+
+def test_chat_history_is_sent_for_follow_up_messages() -> None:
+    first_response = Mock()
+    first_response.raise_for_status.return_value = None
+    first_response.json.return_value = {"response": "The sum is 3."}
+    second_response = Mock()
+    second_response.raise_for_status.return_value = None
+    second_response.json.return_value = {"response": "2 + 1 is still 3."}
+
+    bot = MajaHandler()
+    handler = FakeBotHandler()
+    message = {
+        "type": "stream",
+        "display_recipient": "general",
+        "subject": "math",
+        "sender_full_name": "X",
+    }
+
+    with patch(
+        "majabot.maja.requests.post",
+        side_effect=[first_response, second_response],
+    ) as post:
+        bot.handle_message({**message, "content": "what is 2+1?"}, handler)
+        bot.handle_message({**message, "content": "That is wrong, try again"}, handler)
+
+    second_prompt = post.call_args_list[1].kwargs["json"]["prompt"]
+    assert "X: what is 2+1?" in second_prompt
+    assert "Maja: The sum is 3." in second_prompt
+    assert "X: That is wrong, try again" in second_prompt
+
+
+def test_reset_forgets_chat_history() -> None:
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"response": "First answer"}
+    next_response = Mock()
+    next_response.raise_for_status.return_value = None
+    next_response.json.return_value = {"response": "Fresh answer"}
+
+    bot = MajaHandler()
+    handler = FakeBotHandler()
+    message = {"type": "stream", "display_recipient": "general", "subject": "math"}
+
+    with patch("majabot.maja.requests.post", side_effect=[response, next_response]) as post:
+        bot.handle_message({**message, "content": "first question"}, handler)
+        bot.handle_message({**message, "content": "reset"}, handler)
+        bot.handle_message({**message, "content": "new question"}, handler)
+
+    assert "First answer" not in post.call_args_list[1].kwargs["json"]["prompt"]
 
 
 def test_network_error() -> None:

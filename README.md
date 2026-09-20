@@ -76,6 +76,7 @@ Mention the bot in Zulip to interact with it.
 | --- | --- |
 | `@majabot help` | Show the help message |
 | `@majabot hjelp` | Show the help message |
+| `@majabot reset` | Forget the current conversation history |
 | `@majabot spin Alice, Bob, Charlie` | Select a random winner |
 | `@majabot explain recursion` | Ask the AI a question |
 
@@ -94,6 +95,28 @@ Install the test extra and run:
 pip install --editable ".[test]"
 python -m pytest
 ```
+
+## Development
+
+The bot code lives in `src/majabot/`. `maja.py` handles Zulip messages,
+special commands, and Ollama requests; `spin_wheel.py` contains the reusable
+random-name command. A bot module exposes its handler through
+`handler_class`, and handlers use `zulip_bots.lib.AbstractBotHandler` to send
+replies.
+
+You can add commands in `MajaHandler.handle_message`, change the model or
+Ollama endpoint in `MajaHandler`, and add tests in `tests/test_maja.py`. The
+current bot can answer general and programming questions, show help, and
+select a random winner. Maja keeps the last few messages separately for each
+stream/topic or private conversation, so follow-up questions can refer to
+earlier answers. Use `reset` to clear the current conversation; history is
+held in memory and is lost when the bot restarts.
+
+## Zulip documentation
+
+- [Zulip API documentation](https://zulip.com/api/)
+- [Zulip developer documentation](https://zulip.readthedocs.io/en/latest/)
+- [Zulip Python API and bot framework](https://github.com/zulip/python-zulip-api)
 
 ## License
 
