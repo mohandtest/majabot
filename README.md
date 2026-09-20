@@ -100,8 +100,10 @@ cp .env.example .env
 
 The local provider uses `http://localhost:11434`. Set `OLLAMA_URL` and
 `MODEL` for the `aarmo` provider and, if required, set `OLLAMA_API_KEY` too.
-`OLLAMA_TAGS_URL` can override the model-list endpoint. Provider and model
-choices are held per user in memory and reset when Maja restarts.
+`OLLAMA_TAGS_URL` can override the model-list endpoint. `OLLAMA_TIMEOUT`
+controls how long Maja waits for a response and defaults to 120 seconds;
+increase it for slower reasoning models. Provider and model choices are held
+per user in memory and reset when Maja restarts.
 
 ## Tests
 

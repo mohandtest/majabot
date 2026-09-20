@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
-from requests.exceptions import ConnectionError
+from requests.exceptions import ConnectionError, Timeout
 
 from majabot.maja import MajaHandler
 
@@ -104,6 +104,7 @@ def test_set_provider_aarmo_uses_env_configuration(monkeypatch) -> None:
     assert post.call_args.args[0] == "https://example.test/api/generate"
     assert post.call_args.kwargs["json"]["model"] == "Qwen3.6:27B"
     assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer secret"}
+    assert post.call_args.kwargs["timeout"] == MajaHandler.OLLAMA_TIMEOUT
 
 
 def test_typing_status_wraps_chat_response() -> None:
@@ -273,9 +274,17 @@ def test_reset_forgets_chat_history() -> None:
 def test_network_error() -> None:
     with patch("majabot.maja.requests.post", side_effect=ConnectionError()):
         assert reply_for("hello") == (
-            "I could not reach the local model at "
-            "`http://localhost:11434/api/generate`. "
-            "Please make sure Ollama is running."
+            "I could not reach the local Ollama model. Please make sure Ollama is running."
+        )
+
+
+def test_hosted_timeout_mentions_configured_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(MajaHandler, "OLLAMA_TIMEOUT", 120.0)
+
+    with patch("majabot.maja.requests.post", side_effect=Timeout()):
+        assert reply_for("hello") == (
+            "The local model took too long to respond (timeout: 120 seconds). "
+            "Reasoning models can take longer; increase `OLLAMA_TIMEOUT` in `.env` if needed."
         )
 
 

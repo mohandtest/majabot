@@ -20,6 +20,15 @@ def tags_url_for(generate_url: str) -> str:
     return generate_url.rsplit("/", 1)[0] + "/tags"
 
 
+def timeout_from_env() -> float:
+    """Return a positive model request timeout from the environment."""
+    try:
+        timeout = float(os.getenv("OLLAMA_TIMEOUT", "120"))
+    except (TypeError, ValueError):
+        return 120.0
+    return timeout if timeout > 0 else 120.0
+
+
 class MajaHandler:
     """
     Maja chat bot backed by a local Ollama model.
@@ -34,6 +43,7 @@ class MajaHandler:
     ).strip()
     AARMO_MODEL: Final = os.getenv("MODEL", "").strip() or LOCAL_MODEL
     AARMO_API_KEY: Final = os.getenv("OLLAMA_API_KEY", "").strip()
+    OLLAMA_TIMEOUT: Final = timeout_from_env()
     MAX_HISTORY_MESSAGES: Final = 12
     TYPING_REFRESH_SECONDS: Final = 8
     SYSTEM_PROMPT: Final = (
@@ -126,6 +136,7 @@ Examples:
                 self.selected_model(message),
                 ollama_url,
                 api_key,
+                provider,
             )
             bot_handler.send_reply(message, response)
         finally:
@@ -361,6 +372,7 @@ Examples:
         model: str,
         ollama_url: str,
         api_key: str,
+        provider: str,
     ) -> str:
         request_prompt = self.build_prompt(prompt, conversation_key, speaker)
         payload = {"model": model, "prompt": request_prompt, "stream": False}
@@ -370,20 +382,25 @@ Examples:
                 ollama_url,
                 json=payload,
                 headers=self.request_headers(api_key),
-                timeout=30,
+                timeout=self.OLLAMA_TIMEOUT,
             )
             response.raise_for_status()
             data = response.json()
-        except requests.exceptions.RequestException:
-            logging.exception("Failed to reach Ollama generate endpoint")
+        except requests.exceptions.Timeout:
+            logging.exception("Timed out waiting for the %s model service", provider)
             return (
-                "I could not reach the local model at "
-                "`http://localhost:11434/api/generate`. "
-                "Please make sure Ollama is running."
+                f"The {provider} model took too long to respond "
+                f"(timeout: {self.OLLAMA_TIMEOUT:g} seconds). "
+                "Reasoning models can take longer; increase `OLLAMA_TIMEOUT` in `.env` if needed."
             )
+        except requests.exceptions.RequestException:
+            logging.exception("Failed to reach the %s model service", provider)
+            if provider == "local":
+                return "I could not reach the local Ollama model. Please make sure Ollama is running."
+            return f"I could not reach the configured {provider} model service."
         except ValueError:
-            logging.exception("Ollama returned a non-JSON response")
-            return "I got an invalid response from the local model service."
+            logging.exception("The %s model service returned invalid JSON", provider)
+            return f"I got an invalid response from the {provider} model service."
 
         generated = data.get("response")
         if not isinstance(generated, str) or generated.strip() == "":
