@@ -1,4 +1,0 @@
-recursive-include integrations *
-include README.md
-include zulip/examples/*
-include zulip/py.typed

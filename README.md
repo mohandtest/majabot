@@ -1,77 +1,102 @@
-# Zulip API
+# Maja Bot
 
-[![Build status](https://github.com/zulip/python-zulip-api/workflows/build/badge.svg)](
-https://github.com/zulip/python-zulip-api/actions?query=branch%3Amain+workflow%3Abuild)
-[![Coverage status](https://img.shields.io/codecov/c/github/zulip/python-zulip-api)](
-https://codecov.io/gh/zulip/python-zulip-api)
+Maja is a Zulip chatbot powered by a locally hosted Ollama language model. It
+can answer questions, help with programming, and randomly select a winner
+from a list of names.
 
-This repository contains the source code for Zulip's PyPI packages:
+## Features
 
-* `zulip`: [PyPI package](https://pypi.python.org/pypi/zulip/)
-  for Zulip's API bindings.
-* `zulip_bots`: [PyPI package](https://pypi.python.org/pypi/zulip-bots)
-  for Zulip's bots and bots API.
-* `zulip_botserver`: [PyPI package](https://pypi.python.org/pypi/zulip-botserver)
-  for Zulip's Flask Botserver.
+- AI-powered chat using Ollama
+- Programming assistance
+- Random name selection with `spin`
+- Help messages in English and Norwegian
 
-The source code is written in *Python 3*.
+## Requirements
 
-## Development
+- Python 3.9 or newer
+- A Zulip bot account and API key
+- [Ollama](https://ollama.com/) running locally
+- The `qwen2.5-coder:0.5b` Ollama model
 
-This is part of the Zulip open source project; see the
-[contributing guide](https://zulip.readthedocs.io/en/latest/overview/contributing.html)
-and [commit guidelines](https://zulip.readthedocs.io/en/latest/contributing/version-control.html).
+## Installation
 
-1. Fork and clone the Git repo, and set upstream to zulip/python-zulip-api:
-   ```
-   git clone https://github.com/<your_username>/python-zulip-api.git
-   cd python-zulip-api
-   git remote add upstream https://github.com/zulip/python-zulip-api.git
-   git fetch upstream
-   ```
+Clone the repository and create a virtual environment outside the repository:
 
-2. Make sure you have [pip](https://pip.pypa.io/en/stable/installing/).
+```bash
+git clone https://github.com/mohandtest/majabot.git
+cd majabot
+python3 -m venv ~/zulip-bot
+source ~/zulip-bot/bin/activate
+pip install -r requirements.txt
+pip install --editable ".[test]"
+```
 
-3. Run:
-   ```
-   python3 ./tools/provision
-   ```
-   This sets up a virtual Python environment in `zulip-api-py<your_python_version>-venv`,
-   where `<your_python_version>` is your default version of Python. If you would like to specify
-   a different Python version, run
-   ```
-   python3 ./tools/provision -p <path_to_your_python_version>
-   ```
+Install the Ollama model:
 
-4. If that succeeds, it will end with printing the following command:
-   ```
-   source /.../python-zulip-api/.../activate
-   ```
-   You can run this command to enter the virtual environment.
-   You'll want to run this in each new shell before running commands from `python-zulip-api`.
+```bash
+ollama pull qwen2.5-coder:0.5b
+```
 
-5. Once you've entered the virtualenv, you should see something like this on the terminal:
-   ```
-   (zulip-api-py3-venv) user@pc ~/python-zulip-api $
-   ```
-   You should now be able to run any commands/tests/etc. in this
-   virtual environment.
+Download your bot's Zulip configuration file and save it as `zuliprc` in the
+repository root. This file contains API credentials and is ignored by Git;
+keep it private.
 
-### Running tests
+## Running the bot
 
-You can run all the tests with:
+Start Maja in the foreground:
 
-`pytest`
+```bash
+PYTHONPATH=./src zulip-run-bot majabot.maja --config-file ./zuliprc
+```
 
-or test individual packages with `pytest zulip`, `pytest zulip_bots`,
-or `pytest zulip_botserver` (see the [pytest
-documentation](https://docs.pytest.org/en/latest/how-to/usage.html)
-for more options).
+Or use the included scripts to run it in the background:
 
-To run the linter, type:
+```bash
+./start.sh
+./stop.sh
+```
 
-`./tools/lint`
+By default, `start.sh` uses `~/zulip-bot/bin/zulip-run-bot`, writes the PID to
+`majabot.pid`, and writes output to `majabot.log`. You can override the paths
+with `MAJABOT_VENV`, `MAJABOT_CONFIG`, `MAJABOT_PID_FILE`, and
+`MAJABOT_LOG_FILE`.
 
-To check the type annotations, run:
+Check the status and logs with:
 
-`./tools/run-mypy`
+```bash
+cat majabot.pid
+tail -f majabot.log
+```
+
+## Commands
+
+Mention the bot in Zulip to interact with it.
+
+| Command | Description |
+| --- | --- |
+| `@majabot help` | Show the help message |
+| `@majabot hjelp` | Show the help message |
+| `@majabot spin Alice, Bob, Charlie` | Select a random winner |
+| `@majabot explain recursion` | Ask the AI a question |
+
+## Configuration
+
+Maja uses the local Ollama API at
+`http://localhost:11434/api/generate` and the
+`qwen2.5-coder:0.5b` model. Change these values in
+[src/majabot/maja.py](src/majabot/maja.py).
+
+## Tests
+
+Install the test extra and run:
+
+```bash
+pip install --editable ".[test]"
+python -m pytest
+```
+
+## License
+
+Maja includes the spin-wheel bot code from the Zulip Python API project and
+retains its applicable Apache License 2.0 notices. See [LICENSE](LICENSE),
+[NOTICE](NOTICE), and [THIRDPARTY](THIRDPARTY).

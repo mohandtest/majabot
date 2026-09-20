@@ -33,8 +33,9 @@ htmlcov/
 .project
 .pydevproject
 
-# Ignore virtualenvs created by ./tools/provision
-zulip-api-py*-venv
+# Local Python environments
+.venv/
+zulip-bot/
 
 # Automatically generated MANIFEST.in in zulip_bots
 zulip_bots/MANIFEST.in
@@ -44,6 +45,10 @@ zuliprc
 .zuliprc
 botserverrc
 .botserverrc
+
+# Bot runtime files
+*.log
+*.pid
 
 # vim
 .swp

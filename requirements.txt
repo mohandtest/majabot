@@ -1,19 +1,2 @@
-setuptools
-crayons
-twine
-mock
-pytest
-pytest-cov
-ruff~=0.2.2
--e ./zulip
--e ./zulip_bots
--e ./zulip_botserver
-git+https://github.com/zulip/zulint@417b4e4971fdd5ca8e84847f1391b657b188631a#egg=zulint==1.0.0
-mypy==1.8.0
-types-beautifulsoup4
-types-httplib2
-types-python-dateutil
-types-pytz
-types-requests
-gitlint>=0.13.0
--r ./zulip/integrations/bridge_with_matrix/requirements.txt
+zulip-bots
+requests>=2.31.0
