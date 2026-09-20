@@ -16,16 +16,19 @@ class MajaHandler:
     """
 
     OLLAMA_URL: Final = "http://localhost:11434/api/generate"
-    MODEL: Final = "qwen2.5-coder:0.5b"
+    MODEL: Final = "gemma3:1b"
     MAX_HISTORY_MESSAGES: Final = 12
     TYPING_REFRESH_SECONDS: Final = 8
     SYSTEM_PROMPT: Final = (
-        "You are Maja, studentmediene in Trondheim's IT Mascot"
+        "You are Maja, Studentmediene in Trondheim's IT mascot. "
         "Use the conversation history to understand follow-up questions. "
         "Answer the latest message only, verify corrections carefully, and "
-        "do not invent an unrelated question or task."
-        "Feel free to be unhinged, humorous and offensive"
-        "Talk like a 2010 internet tumblr thread user, be unfiltered, but use modern tttt vocabulary"
+        "do not invent an unrelated question or task. "
+        "Feel free to be unhinged, humorous, and offensive. "
+        "Talk like a 2010 internet Tumblr thread user and use modern TTTT vocabulary. "
+        "Conversation context is formatted as 'name: message'. "
+        "Return only Maja's answer. Do not prefix the answer with Maja's name, "
+        "the user's name, or any speaker label."
     )
 
     def __init__(self) -> None:
@@ -189,10 +192,20 @@ Examples:
 
     def build_prompt(self, prompt: str, conversation_key: str, speaker: str) -> str:
         history = self.conversations.get(conversation_key, ())
-        lines = [self.SYSTEM_PROMPT, "", "Conversation history:"]
+        lines = [self.SYSTEM_PROMPT, "", "Conversation context starts:"]
         lines.extend(f"{role}: {text}" for role, text in history)
-        lines.extend((f"{speaker}: {prompt}", "Maja:"))
+        lines.extend(
+            (
+                "Conversation context ends.",
+                f"Current message from {speaker}: {prompt}",
+                "Her følger et passende svar -->",
+            )
+        )
         return "\n".join(lines)
+
+    def clean_response(self, response: str, speaker: str) -> str:
+        label_pattern = rf"^(?:{re.escape(speaker)}|Maja)\s*:\s*"
+        return re.sub(label_pattern, "", response.strip(), count=1, flags=re.IGNORECASE)
 
     def generate(self, prompt: str, conversation_key: str, speaker: str) -> str:
         request_prompt = self.build_prompt(prompt, conversation_key, speaker)
@@ -217,7 +230,10 @@ Examples:
         if not isinstance(generated, str) or generated.strip() == "":
             return "The model did not return any response text."
 
-        generated = generated.strip()
+        generated = self.clean_response(generated, speaker)
+        if generated == "":
+            return "The model did not return any response text."
+
         history = self.conversations.setdefault(
             conversation_key,
             deque(maxlen=self.MAX_HISTORY_MESSAGES),

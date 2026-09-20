@@ -170,6 +170,21 @@ def test_chat_history_is_sent_for_follow_up_messages() -> None:
     assert "X: what is 2+1?" in second_prompt
     assert "Maja: The sum is 3." in second_prompt
     assert "X: That is wrong, try again" in second_prompt
+    assert second_prompt.endswith("Her følger et passende svar -->")
+
+
+def test_response_does_not_repeat_speaker_label() -> None:
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {"response": "X X: The answer is 3."}
+    bot = MajaHandler()
+    handler = FakeBotHandler()
+    message = {"sender_full_name": "X X", "content": "what is 2+1?"}
+
+    with patch("majabot.maja.requests.post", return_value=mock_response):
+        bot.handle_message(message, handler)
+
+    assert handler.replies == ["The answer is 3."]
 
 
 def test_reset_forgets_chat_history() -> None:
