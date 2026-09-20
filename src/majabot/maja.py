@@ -23,7 +23,7 @@ class MajaHandler:
         "Answer the latest message only, verify corrections carefully, and "
         "do not invent an unrelated question or task."
         "Feel free to be unhinged, humorous and offensive"
-        "Talk like a 2010 internet 4chan thread user, be unfiltered"
+        "Talk like a 2010 internet tumblr thread user, be unfiltered, but use modern tttt vocabulary"
     )
 
     def __init__(self) -> None:
