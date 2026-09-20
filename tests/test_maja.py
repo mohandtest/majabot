@@ -43,6 +43,43 @@ def test_chat_message() -> None:
         assert reply_for("how are you?") == "Hei fra Maja"
 
 
+def test_models_lists_installed_ollama_models() -> None:
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "models": [{"name": "gemma3:1b"}, {"name": "qwen2.5-coder:0.5b"}]
+    }
+
+    with patch("majabot.maja.requests.get", return_value=mock_response):
+        response = reply_for("models")
+
+    assert "`gemma3:1b`" in response
+    assert "`qwen2.5-coder:0.5b`" in response
+
+
+def test_set_model_changes_model_for_that_user() -> None:
+    tags_response = Mock()
+    tags_response.raise_for_status.return_value = None
+    tags_response.json.return_value = {"models": [{"name": "qwen2.5-coder:0.5b"}]}
+    ollama_response = Mock()
+    ollama_response.raise_for_status.return_value = None
+    ollama_response.json.return_value = {"response": "Hello"}
+
+    bot = MajaHandler()
+    handler = FakeBotHandler()
+    message = {"sender_email": "x@example.com", "content": "set qwen2.5-coder:0.5b"}
+
+    with patch("majabot.maja.requests.get", return_value=tags_response):
+        bot.handle_message(message, handler)
+
+    assert handler.replies == ["I will use `qwen2.5-coder:0.5b` for your messages."]
+
+    with patch("majabot.maja.requests.post", return_value=ollama_response) as post:
+        bot.handle_message({**message, "content": "hello"}, handler)
+
+    assert post.call_args.kwargs["json"]["model"] == "qwen2.5-coder:0.5b"
+
+
 def test_typing_status_wraps_chat_response() -> None:
     mock_response = Mock()
     mock_response.raise_for_status.return_value = None

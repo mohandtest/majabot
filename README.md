@@ -77,6 +77,8 @@ Mention the bot in Zulip to interact with it.
 | `@majabot help` | Show the help message |
 | `@majabot hjelp` | Show the help message |
 | `@majabot reset` | Forget the current conversation history |
+| `@majabot models` | List installed Ollama models |
+| `@majabot set gemma3:1b` | Choose a model for your messages |
 | `@majabot spin Alice, Bob, Charlie` | Select a random winner |
 | `@majabot explain recursion` | Ask the AI a question |
 
@@ -84,7 +86,9 @@ Mention the bot in Zulip to interact with it.
 
 Maja uses the local Ollama API at
 `http://localhost:11434/api/generate` and the
-`qwen2.5-coder:0.5b` model. Change these values in
+configured default model. Use `models` to list models installed in Ollama and
+`set <model-name>` to choose a model for your own messages. The selection is
+held in memory and resets when Maja restarts. API settings are in
 [src/majabot/maja.py](src/majabot/maja.py).
 
 ## Tests

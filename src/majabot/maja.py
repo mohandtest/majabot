@@ -2,7 +2,7 @@ import logging
 import re
 import threading
 from collections import deque
-from typing import Any, Deque, Dict, Final, Optional, Tuple
+from typing import Any, Deque, Dict, Final, List, Optional, Tuple
 
 import requests
 
@@ -16,7 +16,8 @@ class MajaHandler:
     """
 
     OLLAMA_URL: Final = "http://localhost:11434/api/generate"
-    MODEL: Final = "gemma3:1b"
+    TAGS_URL: Final = "http://localhost:11434/api/tags"
+    DEFAULT_MODEL: Final = "qwen2.5-coder:0.5b"
     MAX_HISTORY_MESSAGES: Final = 12
     TYPING_REFRESH_SECONDS: Final = 8
     SYSTEM_PROMPT: Final = (
@@ -34,6 +35,7 @@ class MajaHandler:
     def __init__(self) -> None:
         self.spin_wheel_bot = SpinWheelHandler()
         self.conversations: Dict[str, Deque[Tuple[str, str]]] = {}
+        self.model_preferences: Dict[str, str] = {}
 
     def usage(self) -> str:
         return """
@@ -45,6 +47,8 @@ Commands:
 • `spin [name1, name2, ...]` - Pick a random winner from names
 • `help` or `hjelp` - Show this message
 • `reset` - Forget the current conversation
+• `models` - List installed Ollama models
+• `set <model-name>` - Use an installed model for your messages
 
 Examples:
 • `@majabot spin Alice, Bob, Charlie`
@@ -74,6 +78,14 @@ Examples:
             self.handle_spin(message, bot_handler, args)
             return
 
+        if command == "models":
+            bot_handler.send_reply(message, self.models_reply())
+            return
+
+        if command == "set":
+            bot_handler.send_reply(message, self.set_model(message, args))
+            return
+
         typing_stop = threading.Event()
         typing_thread = threading.Thread(
             target=self.refresh_typing_status,
@@ -83,7 +95,12 @@ Examples:
         self.set_typing_status(message, bot_handler, "start")
         typing_thread.start()
         try:
-            response = self.generate(prompt, conversation_key, self.sender_label(message))
+            response = self.generate(
+                prompt,
+                conversation_key,
+                self.sender_label(message),
+                self.selected_model(message),
+            )
             bot_handler.send_reply(message, response)
         finally:
             typing_stop.set()
@@ -118,6 +135,64 @@ Examples:
 
     def sender_label(self, message: Dict[str, Any]) -> str:
         return str(message.get("sender_full_name") or message.get("sender_email") or "User")
+
+    def model_preference_key(self, message: Dict[str, Any]) -> str:
+        return str(
+            message.get("sender_email")
+            or message.get("sender_id")
+            or message.get("sender_full_name")
+            or "default"
+        )
+
+    def selected_model(self, message: Dict[str, Any]) -> str:
+        return self.model_preferences.get(self.model_preference_key(message), self.DEFAULT_MODEL)
+
+    def available_models(self) -> Optional[List[str]]:
+        try:
+            response = requests.get(self.TAGS_URL, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.RequestException:
+            logging.exception("Failed to list Ollama models")
+            return None
+        except ValueError:
+            logging.exception("Ollama returned invalid model-list data")
+            return None
+
+        models = data.get("models")
+        if not isinstance(models, list):
+            return None
+
+        names = {
+            model.get("name") or model.get("model")
+            for model in models
+            if isinstance(model, dict)
+            and isinstance(model.get("name") or model.get("model"), str)
+        }
+        return sorted(names)
+
+    def models_reply(self) -> str:
+        models = self.available_models()
+        if models is None:
+            return "I could not get the installed models from Ollama. Is Ollama running?"
+        if not models:
+            return "Ollama is running, but no models are installed."
+
+        model_list = "\n".join(f"• `{model}`" for model in models)
+        return f"**Installed Ollama models:**\n{model_list}\n\nUse `set <model-name>` to choose one."
+
+    def set_model(self, message: Dict[str, Any], model_name: str) -> str:
+        if not model_name:
+            return "Usage: `set <model-name>`. Use `models` to list installed models."
+
+        models = self.available_models()
+        if models is None:
+            return "I could not get the installed models from Ollama. Is Ollama running?"
+        if model_name not in models:
+            return f"Model `{model_name}` is not installed. Use `models` to see available models."
+
+        self.model_preferences[self.model_preference_key(message)] = model_name
+        return f"I will use `{model_name}` for your messages."
 
     def typing_request(
         self,
@@ -207,9 +282,15 @@ Examples:
         label_pattern = rf"^(?:{re.escape(speaker)}|Maja)\s*:\s*"
         return re.sub(label_pattern, "", response.strip(), count=1, flags=re.IGNORECASE)
 
-    def generate(self, prompt: str, conversation_key: str, speaker: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        conversation_key: str,
+        speaker: str,
+        model: str,
+    ) -> str:
         request_prompt = self.build_prompt(prompt, conversation_key, speaker)
-        payload = {"model": self.MODEL, "prompt": request_prompt, "stream": False}
+        payload = {"model": model, "prompt": request_prompt, "stream": False}
 
         try:
             response = requests.post(self.OLLAMA_URL, json=payload, timeout=30)
