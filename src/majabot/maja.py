@@ -1,7 +1,8 @@
 import logging
 import re
+import threading
 from collections import deque
-from typing import Any, Deque, Dict, Final, Tuple
+from typing import Any, Deque, Dict, Final, Optional, Tuple
 
 import requests
 
@@ -17,6 +18,7 @@ class MajaHandler:
     OLLAMA_URL: Final = "http://localhost:11434/api/generate"
     MODEL: Final = "qwen2.5-coder:0.5b"
     MAX_HISTORY_MESSAGES: Final = 12
+    TYPING_REFRESH_SECONDS: Final = 8
     SYSTEM_PROMPT: Final = (
         "You are Maja, studentmediene in Trondheim's IT Mascot"
         "Use the conversation history to understand follow-up questions. "
@@ -69,10 +71,21 @@ Examples:
             self.handle_spin(message, bot_handler, args)
             return
 
-        bot_handler.send_reply(
-            message,
-            self.generate(prompt, conversation_key, self.sender_label(message)),
+        typing_stop = threading.Event()
+        typing_thread = threading.Thread(
+            target=self.refresh_typing_status,
+            args=(message, bot_handler, typing_stop),
+            daemon=True,
         )
+        self.set_typing_status(message, bot_handler, "start")
+        typing_thread.start()
+        try:
+            response = self.generate(prompt, conversation_key, self.sender_label(message))
+            bot_handler.send_reply(message, response)
+        finally:
+            typing_stop.set()
+            typing_thread.join(timeout=1)
+            self.set_typing_status(message, bot_handler, "stop")
 
     def extract_prompt(self, content: str, bot_mention: str) -> str:
         # Remove the exact mention when available.
@@ -102,6 +115,77 @@ Examples:
 
     def sender_label(self, message: Dict[str, Any]) -> str:
         return str(message.get("sender_full_name") or message.get("sender_email") or "User")
+
+    def typing_request(
+        self,
+        message: Dict[str, Any],
+        bot_handler: AbstractBotHandler,
+        operation: str,
+    ) -> Optional[Dict[str, Any]]:
+        message_type = message.get("type")
+        if message_type in {"stream", "channel"}:
+            stream_id = message.get("stream_id")
+            if stream_id is None:
+                client = getattr(bot_handler, "_client", None)
+                get_stream_id = getattr(client, "get_stream_id", None)
+                if callable(get_stream_id):
+                    try:
+                        stream_id = get_stream_id(message.get("display_recipient", ""))["stream_id"]
+                    except Exception:
+                        logging.exception("Could not resolve the stream ID for typing status")
+
+            if stream_id is None:
+                return None
+
+            return {
+                "op": operation,
+                "type": "stream",
+                "stream_id": stream_id,
+                "topic": str(message.get("subject", "")),
+            }
+
+        if message_type in {"private", "direct"}:
+            bot_user_id = getattr(bot_handler, "user_id", None)
+            recipients = message.get("display_recipient", [])
+            recipient_ids = [
+                person["id"]
+                for person in recipients
+                if isinstance(person, dict)
+                and "id" in person
+                and person["id"] != bot_user_id
+            ]
+            if not recipient_ids:
+                return None
+            return {"op": operation, "type": "direct", "to": recipient_ids}
+
+        return None
+
+    def set_typing_status(
+        self,
+        message: Dict[str, Any],
+        bot_handler: AbstractBotHandler,
+        operation: str,
+    ) -> None:
+        # zulip-bots currently keeps the Zulip client private on ExternalBotHandler.
+        client = getattr(bot_handler, "_client", None)
+        set_status = getattr(client, "set_typing_status", None)
+        request = self.typing_request(message, bot_handler, operation)
+        if not callable(set_status) or request is None:
+            return
+
+        try:
+            set_status(request)
+        except Exception:
+            logging.exception("Failed to set Maja typing status to %s", operation)
+
+    def refresh_typing_status(
+        self,
+        message: Dict[str, Any],
+        bot_handler: AbstractBotHandler,
+        stop_event: threading.Event,
+    ) -> None:
+        while not stop_event.wait(self.TYPING_REFRESH_SECONDS):
+            self.set_typing_status(message, bot_handler, "start")
 
     def build_prompt(self, prompt: str, conversation_key: str, speaker: str) -> str:
         history = self.conversations.get(conversation_key, ())

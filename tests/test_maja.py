@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from requests.exceptions import ConnectionError
 
@@ -7,8 +7,9 @@ from majabot.maja import MajaHandler
 
 
 class FakeBotHandler:
-    def __init__(self) -> None:
+    def __init__(self, client=None) -> None:
         self.replies = []
+        self._client = client
 
     def identity(self) -> SimpleNamespace:
         return SimpleNamespace(mention="@**majabot**")
@@ -40,6 +41,70 @@ def test_chat_message() -> None:
 
     with patch("majabot.maja.requests.post", return_value=mock_response):
         assert reply_for("how are you?") == "Hei fra Maja"
+
+
+def test_typing_status_wraps_chat_response() -> None:
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {"response": "Hei fra Maja"}
+    client = Mock()
+    handler = FakeBotHandler(client)
+    bot = MajaHandler()
+    message = {
+        "type": "stream",
+        "stream_id": 123,
+        "display_recipient": "general",
+        "subject": "chat",
+        "content": "hello",
+    }
+
+    with patch("majabot.maja.requests.post", return_value=mock_response):
+        bot.handle_message(message, handler)
+
+    assert client.set_typing_status.call_args_list == [
+        call(
+            {
+                "op": "start",
+                "type": "stream",
+                "stream_id": 123,
+                "topic": "chat",
+            }
+        ),
+        call(
+            {
+                "op": "stop",
+                "type": "stream",
+                "stream_id": 123,
+                "topic": "chat",
+            }
+        ),
+    ]
+
+
+def test_typing_status_for_direct_message() -> None:
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {"response": "Hei fra Maja"}
+    client = Mock()
+    handler = FakeBotHandler(client)
+    handler.user_id = 1017137
+    bot = MajaHandler()
+    message = {
+        "type": "private",
+        "display_recipient": [
+            {"id": 1017137, "email": "maja@example.com"},
+            {"id": 42, "email": "x@example.com"},
+        ],
+        "content": "hello",
+    }
+
+    with patch("majabot.maja.requests.post", return_value=mock_response):
+        bot.handle_message(message, handler)
+
+    assert client.set_typing_status.call_args_list == [
+        call({"op": "start", "type": "direct", "to": [42]}),
+        call({"op": "stop", "type": "direct", "to": [42]}),
+    ]
 
 
 def test_spin_without_names() -> None:
